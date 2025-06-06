@@ -58,21 +58,40 @@ class DownloadThread(QThread):
                 '720p': 'bestvideo[height<=720]+bestaudio/best[height<=720]',
                 '480p': 'bestvideo[height<=480]+bestaudio/best[height<=480]',
                 '360p': 'bestvideo[height<=360]+bestaudio/best[height<=360]',
-                'audio_only': 'bestaudio/best'
+                'audio_only': 'bestaudio/best'  # 保持原始音频流选择
             }
-            
-            ydl_opts = {
-                'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
-                'progress_hooks': [self.progress_hook],
-                'format': format_mapping.get(self.quality, 'bestvideo+bestaudio/best'),
-                'merge_output_format': 'mp4',
-                'noplaylist': True,
-                'writethumbnail': True,  # Download thumbnail
-                'postprocessors': [{
-                    'key': 'EmbedThumbnail',
-                    'already_have_thumbnail': True
-                }]
-            }
+
+            if self.quality == "audio_only":
+                ydl_opts = {
+                    'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
+                    'progress_hooks': [self.progress_hook],
+                    'format': format_mapping[self.quality],
+                    'noplaylist': True,
+                    'postprocessors': [
+                        {
+                            'key': 'FFmpegExtractAudio',       
+                            'preferredcodec': 'mp3',           
+                            'preferredquality': '192',         
+                        },
+                        {
+                            'key': 'EmbedThumbnail',           
+                            'already_have_thumbnail': True
+                        }
+                    ]
+                }
+            else:
+                ydl_opts = {
+                    'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
+                    'progress_hooks': [self.progress_hook],
+                    'format': format_mapping.get(self.quality, 'bestvideo+bestaudio/best'),
+                    'merge_output_format': 'mp4',  
+                    'noplaylist': True,
+                    'writethumbnail': True,
+                    'postprocessors': [{
+                        'key': 'EmbedThumbnail',
+                        'already_have_thumbnail': True
+                    }]
+                }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
