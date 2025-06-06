@@ -121,7 +121,7 @@ class YouTubeDownloader(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("YouTube Video Downloader")
-        self.setGeometry(100, 100, 1000, 700)  # Increase window size
+        self.setGeometry(100, 100, 1000, 800)  # Increase window size
         self.setMinimumSize(900, 600)  # Increase minimum size
         
         # Initialize variables
@@ -187,7 +187,6 @@ class YouTubeDownloader(QMainWindow):
             }
             QLineEdit:focus {
                 border-color: #3498db;
-                box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.25);
             }
         """)
         url_layout.addWidget(self.url_input, 1)
@@ -262,6 +261,7 @@ class YouTubeDownloader(QMainWindow):
         title_layout = QHBoxLayout()
         self.title_label = QLabel("")
         self.title_label.setFont(QFont("Segoe UI", 11, QFont.Bold))  
+        self.title_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.title_label.setStyleSheet("color: #212529;")
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
@@ -273,16 +273,19 @@ class YouTubeDownloader(QMainWindow):
         
         self.uploader_label = QLabel("")
         self.uploader_label.setFont(QFont("Segoe UI", 9))  
+        self.uploader_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.uploader_label.setStyleSheet("color: #6c757d;")
         meta_info_layout.addWidget(self.uploader_label)
         
         self.views_label = QLabel("")
         self.views_label.setFont(QFont("Segoe UI", 9))  
+        self.views_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.views_label.setStyleSheet("color: #6c757d;")
         meta_info_layout.addWidget(self.views_label)
         
         self.duration_label = QLabel("")
         self.duration_label.setFont(QFont("Segoe UI", 9))  
+        self.duration_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.duration_label.setStyleSheet("color: #6c757d;")
         meta_info_layout.addWidget(self.duration_label)
         
@@ -291,6 +294,7 @@ class YouTubeDownloader(QMainWindow):
         # Video description
         self.description_label = QLabel("")
         self.description_label.setFont(QFont("Segoe UI", 9))  
+        self.description_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.description_label.setStyleSheet("color: #495057;")
         self.description_label.setWordWrap(True)
         self.description_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -699,7 +703,7 @@ class YouTubeDownloader(QMainWindow):
                         self.eta_remaining = remaining_seconds
         
         # Update status
-        self.status_label.setText(f" {int(percent)}% complete")
+        #self.status_label.setText(f" {int(percent)}% complete")
     
     def update_eta(self):
         """Update estimated time remaining display"""
