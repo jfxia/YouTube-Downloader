@@ -18,4 +18,8 @@ python youtube-downloader.py
 
 Screenshot:
 
-![screenshot](/assets/screenshot.png)
+![screenshot](/assets/screenshot1.png)
+
+![screenshot](/assets/screenshot2.png)
+
+![screenshot](/assets/screenshot3.png)
