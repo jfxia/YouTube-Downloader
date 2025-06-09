@@ -7,7 +7,7 @@ For better experience,install **FFMpeg** and **FFprobe**(https://github.com/yt-d
 
 
 ```
-pip install PyQt5 yt_dlp
+pip install PyQt5 requests yt_dlp
 ```
 
 **Usage**:
