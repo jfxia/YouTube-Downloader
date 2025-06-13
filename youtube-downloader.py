@@ -202,7 +202,8 @@ class YouTubeDownloader(QMainWindow):
             QLineEdit {
                 border: 1px solid #ced4da;
                 border-radius: 4px;
-                padding: 8px 12px;
+                padding: 0px 12px;
+				font-weight: bold;
             }
             QLineEdit:focus {
                 border-color: #3498db;
@@ -259,13 +260,14 @@ class YouTubeDownloader(QMainWindow):
         self.thumbnail_label = QLabel()
         self.thumbnail_label.setMinimumSize(170, 90)
         self.thumbnail_label.setAlignment(Qt.AlignCenter)
+        self.thumbnail_label.setWordWrap(True)
         self.thumbnail_label.setStyleSheet("""
             QLabel {
                 color: #6c757d;
                 background-color: #f8f9fa;
                 border: 1px dashed #dee2e6;
                 border-radius: 2px;
-            }
+           }
         """)
         self.thumbnail_label.setText("No thumbnail available")
         thumbnail_layout.addWidget(self.thumbnail_label)
