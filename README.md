@@ -23,3 +23,8 @@ Screenshot:
 ![screenshot](/assets/screenshot2.png)
 
 ![screenshot](/assets/screenshot3.png)
+
+![screenshot](/assets/history.png)
+
+
+**If some error occurs while downloading youtube videos, just close the program and try it once more.**
