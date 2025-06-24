@@ -1,6 +1,8 @@
 import os
 import sys
 import yt_dlp
+import sqlite3
+from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QPushButton, QProgressBar, QFileDialog,
                              QMessageBox, QFrame, QGroupBox, QSizePolicy, QSpacerItem,
@@ -10,6 +12,92 @@ from PyQt5.QtGui import QFont, QPalette, QColor, QIcon, QPixmap, QImage, QPainte
 import requests
 from io import BytesIO
 import platform
+
+
+class DatabaseManager:
+    def __init__(self, db_path="download_history.db"):
+        self.db_path = db_path
+        self.init_database()
+    
+    def init_database(self):
+        """Initialize the database and create tables if they don't exist"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS download_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title TEXT NOT NULL,
+                        url TEXT NOT NULL,
+                        uploader TEXT,
+                        duration TEXT,
+                        view_count TEXT,
+                        quality TEXT,
+                        output_path TEXT,
+                        download_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        status TEXT DEFAULT 'completed'
+                    )
+                ''')
+                conn.commit()
+        except Exception as e:
+            print(f"Database initialization error: {e}")
+    
+    def save_download(self, title, url, uploader, duration, view_count, quality, output_path, status="completed"):
+        """Save a download record to the database"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO download_history 
+                    (title, url, uploader, duration, view_count, quality, output_path, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (title, url, uploader, duration, view_count, quality, output_path, status))
+                conn.commit()
+                return cursor.lastrowid
+        except Exception as e:
+            print(f"Error saving download: {e}")
+            return None
+    
+    def get_download_history(self, limit=50):
+        """Get download history from the database"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, title, url, uploader, duration, view_count, quality, 
+                           output_path, download_date, status
+                    FROM download_history 
+                    ORDER BY download_date DESC 
+                    LIMIT ?
+                ''', (limit,))
+                return cursor.fetchall()
+        except Exception as e:
+            print(f"Error getting download history: {e}")
+            return []
+    
+    def clear_history(self):
+        """Clear all download history"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM download_history')
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error clearing history: {e}")
+            return False
+    
+    def delete_download(self, download_id):
+        """Delete a specific download record"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM download_history WHERE id = ?', (download_id,))
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error deleting download: {e}")
+            return False
 
 
 class DownloadThread(QThread):
@@ -24,14 +112,16 @@ class DownloadThread(QThread):
         self.quality = quality
         self.cancelled = False
         self.video_info = {}
+        self.output_path = ""  # Add this to track the actual output file path
         
     def run(self):
         try:
-            # Get video information
+            # 获取视频信息（添加extractor_args）
             ydl_info = yt_dlp.YoutubeDL({
                 'format': 'bestaudio/best',
                 'quiet': True,
-                'no_warnings': True
+                'no_warnings': True,
+                'extractor_args': {'youtube': {'skip': ['dash', 'hls']}}
             })
             info_dict = ydl_info.extract_info(self.url, download=False)
             
@@ -46,19 +136,18 @@ class DownloadThread(QThread):
                 'uploader': info_dict.get('uploader', 'Unknown Uploader'),
                 'view_count': self.format_count(info_dict.get('view_count', 0))
             }
-            
-            # Emit thumbnail signal
             if self.video_info['thumbnail']:
+                # 确保在主线程更新UI
                 self.thumbnail_signal.emit(self.video_info['thumbnail'])
             
-            # Set download format
+            # 更新格式映射
             format_mapping = {
-                'best': 'bestvideo+bestaudio/best',
-                '1080p': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
-                '720p': 'bestvideo[height<=720]+bestaudio/best[height<=720]',
-                '480p': 'bestvideo[height<=480]+bestaudio/best[height<=480]',
-                '360p': 'bestvideo[height<=360]+bestaudio/best[height<=360]',
-                'audio_only': 'bestaudio/best'  # 保持原始音频流选择
+                'best': 'bv*+ba/b',
+                '1080p': 'bv[height<=1080]+ba/b[height<=1080]',
+                '720p': 'bv[height<=720]+ba/b[height<=720]',
+                '480p': 'bv[height<=480]+ba/b[height<=480]',
+                '360p': 'bv[height<=360]+ba/b[height<=360]',
+                'audio_only': 'ba/b'
             }
 
             if self.quality == "audio_only":
@@ -97,6 +186,8 @@ class DownloadThread(QThread):
                 ydl.download([self.url])
                 
             if not self.cancelled:
+                # Get the actual output file path
+                self.output_path = os.path.join(self.output_dir, f"{self.video_info['title']}.{'mp3' if self.quality == 'audio_only' else 'mp4'}")
                 self.finished_signal.emit(True, "Download completed!", self.video_info['title'], self.video_info)
                 
         except Exception as e:
@@ -143,12 +234,16 @@ class YouTubeDownloader(QMainWindow):
         self.setGeometry(100, 100, 1000, 800)  # Increase window size
         self.setMinimumSize(900, 600)  # Increase minimum size
         
+        # Initialize database manager
+        self.db_manager = DatabaseManager()
+        
         # Initialize variables
         self.download_thread = None
         self.download_timer = QTimer(self)
         self.download_timer.timeout.connect(self.update_eta)
         self.eta_remaining = 0
         self.last_progress_time = 0
+        self.history_widgets = []  # Store history widget references
         
         # Create main widget and layout
         main_widget = QWidget()
@@ -508,23 +603,64 @@ class YouTubeDownloader(QMainWindow):
         history_layout = QVBoxLayout()
         history_layout.setContentsMargins(0, 0, 0, 0)
         
+        # History controls
+        history_controls = QHBoxLayout()
+        
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setMinimumHeight(32)
+        refresh_btn.setFont(QFont("Segoe UI", 9))
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        refresh_btn.clicked.connect(self.load_history)
+        history_controls.addWidget(refresh_btn)
+        
+        clear_btn = QPushButton("Clear History")
+        clear_btn.setMinimumHeight(32)
+        clear_btn.setFont(QFont("Segoe UI", 9))
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        clear_btn.clicked.connect(self.clear_history)
+        history_controls.addWidget(clear_btn)
+        
+        history_controls.addStretch()
+        history_layout.addLayout(history_controls)
+        
+        # History content
         history_frame = QFrame()
         history_frame.setStyleSheet("background-color: #ffffff; border: 1px solid #e9ecef; border-radius: 4px;")
-        history_frame_layout = QVBoxLayout()
-        history_frame_layout.setContentsMargins(15, 15, 15, 15)
+        self.history_frame_layout = QVBoxLayout()
+        self.history_frame_layout.setContentsMargins(15, 15, 15, 15)
         
         # Empty history message
         self.history_empty_label = QLabel("No download history")
-        self.history_empty_label.setFont(QFont("Segoe UI", 10))  
+        self.history_empty_label.setFont(QFont("Segoe UI", 10))
         self.history_empty_label.setStyleSheet("color: #6c757d;")
         self.history_empty_label.setAlignment(Qt.AlignCenter)
         self.history_empty_label.setMinimumHeight(200)
         
-        history_frame_layout.addWidget(self.history_empty_label)
+        self.history_frame_layout.addWidget(self.history_empty_label)
         
-        # History list will be dynamically added here
-        
-        history_frame.setLayout(history_frame_layout)
+        history_frame.setLayout(self.history_frame_layout)
         
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -571,6 +707,9 @@ class YouTubeDownloader(QMainWindow):
             self.setWindowIcon(QIcon("youtube_icon.png"))
         except:
             pass
+        
+        # Load history on startup
+        self.load_history()
     
     def setStyle(self):
         # Set global style with increased tab width
@@ -665,6 +804,7 @@ class YouTubeDownloader(QMainWindow):
         self.download_thread = DownloadThread(url, output_dir, quality)
         self.download_thread.progress_signal.connect(self.update_progress)
         self.download_thread.finished_signal.connect(self.download_finished)
+        print("===========load_thumbnail=============")
         self.download_thread.thumbnail_signal.connect(self.load_thumbnail)
         self.download_thread.start()
         
@@ -678,22 +818,38 @@ class YouTubeDownloader(QMainWindow):
             self.status_label.setText("Canceling download...")
     
     def load_thumbnail(self, url):
-        """Load and display video thumbnail"""
+        """加载并显示视频缩略图"""
         try:
-            response = requests.get(url)
+            if not url:
+                self.thumbnail_label.setText("No thumbnail URL")
+                return
+                
+            # 添加超时处理
+            response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 data = response.content
-                pixmap = QPixmap()
-                pixmap.loadFromData(data)
-                scaled_pixmap = pixmap.scaled(
-                    self.thumbnail_label.size(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation
-                )
-                self.thumbnail_label.setPixmap(scaled_pixmap)
-                self.thumbnail_label.setText("")
+                
+                # 使用QImage加载图片数据
+                image = QImage()
+                image.loadFromData(data)
+                
+                if not image.isNull():
+                    # 转换为QPixmap并缩放
+                    pixmap = QPixmap.fromImage(image)
+                    scaled_pixmap = pixmap.scaled(
+                        self.thumbnail_label.width(),
+                        self.thumbnail_label.height(),
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                    self.thumbnail_label.setPixmap(scaled_pixmap)
+                    self.thumbnail_label.setText("")
+                else:
+                    self.thumbnail_label.setText("Invalid image data")
+            else:
+                self.thumbnail_label.setText(f"HTTP error: {response.status_code}")
         except Exception as e:
-            self.thumbnail_label.setText("Failed to load thumbnail")
+            self.thumbnail_label.setText(f"Error: {str(e)}")
             print(f"Error loading thumbnail: {e}")
     
     def update_progress(self, percent, speed, title, data):
@@ -734,6 +890,224 @@ class YouTubeDownloader(QMainWindow):
             self.eta_label.setText(f"ETA: {mins:02d}:{secs:02d}")
             self.eta_remaining -= 1
     
+    def create_history_item(self, download_data):
+        """Create a history item widget"""
+        item_frame = QFrame()
+        item_frame.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 4px;
+                margin: 2px 0px;
+            }
+            QFrame:hover {
+                background-color: #e9ecef;
+            }
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 8, 10, 8)
+        
+        # Title and delete button row
+        title_row = QHBoxLayout()
+        
+        title_label = QLabel(download_data[1])  # title
+        title_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        title_label.setStyleSheet("color: #212529;")
+        title_label.setWordWrap(True)
+        title_row.addWidget(title_label, 1)
+        
+        delete_btn = QPushButton("×")
+        delete_btn.setFixedSize(20, 20)
+        delete_btn.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 10px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        delete_btn.clicked.connect(lambda: self.delete_history_item(download_data[0], item_frame))
+        title_row.addWidget(delete_btn)
+        
+        layout.addLayout(title_row)
+        
+        # URL row with copy and reuse buttons
+        url_row = QHBoxLayout()
+        
+        url_label = QLabel(download_data[2])  # url
+        url_label.setFont(QFont("Segoe UI", 8))
+        url_label.setStyleSheet("color: #007bff; text-decoration: underline;")
+        url_label.setWordWrap(True)
+        url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        url_row.addWidget(url_label, 1)
+        
+        # Copy URL button
+        copy_btn = QPushButton("Copy URL")
+        copy_btn.setFixedSize(70, 24)
+        copy_btn.setFont(QFont("Segoe UI", 7))
+        copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+        """)
+        copy_btn.clicked.connect(lambda: self.copy_url_to_clipboard(download_data[2]))
+        url_row.addWidget(copy_btn)
+        
+        # Reuse URL button
+        reuse_btn = QPushButton("Reuse")
+        reuse_btn.setFixedSize(50, 24)
+        reuse_btn.setFont(QFont("Segoe UI", 7))
+        reuse_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        reuse_btn.clicked.connect(lambda: self.reuse_url(download_data[2]))
+        url_row.addWidget(reuse_btn)
+        
+        layout.addLayout(url_row)
+        
+        # Details row
+        details_layout = QHBoxLayout()
+        
+        # Left column
+        left_details = QVBoxLayout()
+        left_details.setSpacing(2)
+        
+        uploader_label = QLabel(f"Uploader: {download_data[3] or 'Unknown'}")
+        uploader_label.setFont(QFont("Segoe UI", 8))
+        uploader_label.setStyleSheet("color: #6c757d;")
+        left_details.addWidget(uploader_label)
+        
+        duration_label = QLabel(f"Duration: {download_data[4] or 'Unknown'}")
+        duration_label.setFont(QFont("Segoe UI", 8))
+        duration_label.setStyleSheet("color: #6c757d;")
+        left_details.addWidget(duration_label)
+        
+        views_label = QLabel(f"Views: {download_data[5] or 'Unknown'}")
+        views_label.setFont(QFont("Segoe UI", 8))
+        views_label.setStyleSheet("color: #6c757d;")
+        left_details.addWidget(views_label)
+        
+        details_layout.addLayout(left_details)
+        
+        # Right column
+        right_details = QVBoxLayout()
+        right_details.setSpacing(2)
+        
+        quality_label = QLabel(f"Quality: {download_data[6] or 'Unknown'}")
+        quality_label.setFont(QFont("Segoe UI", 8))
+        quality_label.setStyleSheet("color: #6c757d;")
+        right_details.addWidget(quality_label)
+        
+        date_label = QLabel(f"Date: {download_data[8]}")
+        date_label.setFont(QFont("Segoe UI", 8))
+        date_label.setStyleSheet("color: #6c757d;")
+        right_details.addWidget(date_label)
+        
+        status_label = QLabel(f"Status: {download_data[9]}")
+        status_label.setFont(QFont("Segoe UI", 8))
+        status_label.setStyleSheet("color: #28a745;" if download_data[9] == "completed" else "color: #dc3545;")
+        right_details.addWidget(status_label)
+        
+        details_layout.addLayout(right_details)
+        details_layout.addStretch()
+        
+        layout.addLayout(details_layout)
+        
+        item_frame.setLayout(layout)
+        return item_frame
+    
+    def copy_url_to_clipboard(self, url):
+        """Copy URL to clipboard"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(url)
+        QMessageBox.information(self, "URL Copied", "URL has been copied to clipboard!")
+    
+    def reuse_url(self, url):
+        """Reuse URL in the download input field"""
+        self.url_input.setText(url)
+        # Switch to download tab
+        self.parent().findChild(QTabWidget).setCurrentIndex(0)
+        QMessageBox.information(self, "URL Reused", "URL has been added to the download field!")
+    
+    def load_history(self):
+        """Load and display download history"""
+        # Clear existing history widgets
+        for widget in self.history_widgets:
+            widget.setParent(None)
+        self.history_widgets.clear()
+        
+        # Get history from database
+        history_data = self.db_manager.get_download_history()
+        
+        if not history_data:
+            self.history_empty_label.show()
+            return
+        
+        # Hide empty label
+        self.history_empty_label.hide()
+        
+        # Create history items
+        for download_data in history_data:
+            history_item = self.create_history_item(download_data)
+            self.history_frame_layout.addWidget(history_item)
+            self.history_widgets.append(history_item)
+    
+    def clear_history(self):
+        """Clear all download history"""
+        reply = QMessageBox.question(
+            self, 
+            "Clear History", 
+            "Are you sure you want to clear all download history?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            if self.db_manager.clear_history():
+                self.load_history()
+                QMessageBox.information(self, "Success", "Download history cleared successfully!")
+            else:
+                QMessageBox.critical(self, "Error", "Failed to clear download history!")
+    
+    def delete_history_item(self, download_id, item_widget):
+        """Delete a specific history item"""
+        reply = QMessageBox.question(
+            self,
+            "Delete Item",
+            "Are you sure you want to delete this download record?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            if self.db_manager.delete_download(download_id):
+                item_widget.setParent(None)
+                self.history_widgets.remove(item_widget)
+                # Reload history if no items left
+                if not self.history_widgets:
+                    self.load_history()
+            else:
+                QMessageBox.critical(self, "Error", "Failed to delete download record!")
+    
     def download_finished(self, success, message, title, video_info):
         """Handle download completion"""
         # Stop timer
@@ -763,11 +1137,57 @@ class YouTubeDownloader(QMainWindow):
             # Show success message
             QMessageBox.information(self, "Download Complete", f"Video '{title}' downloaded successfully!")
             
-            # TODO: Save to history
+            # Save to database
+            quality_mapping = {
+                "Best Quality": "best",
+                "1080p": "1080p", 
+                "720p": "720p",
+                "480p": "480p",
+                "360p": "360p",
+                "Audio Only": "audio_only"
+            }
+            quality = quality_mapping[self.quality_combo.currentText()]
+            
+            self.db_manager.save_download(
+                title=title,
+                url=self.download_thread.url,
+                uploader=video_info.get('uploader', 'Unknown Uploader'),
+                duration=video_info.get('duration', '0:00'),
+                view_count=video_info.get('view_count', '0'),
+                quality=quality,
+                output_path=self.download_thread.output_path,
+                status="completed"
+            )
+            
+            # Refresh history tab
+            self.load_history()
         else:
             self.status_label.setText(f"Download failed: {message}")
             self.speed_label.setText("Download failed")
             self.eta_label.setText("")
+            
+            # Save failed download to database
+            if video_info:
+                quality_mapping = {
+                    "Best Quality": "best",
+                    "1080p": "1080p",
+                    "720p": "720p", 
+                    "480p": "480p",
+                    "360p": "360p",
+                    "Audio Only": "audio_only"
+                }
+                quality = quality_mapping[self.quality_combo.currentText()]
+                
+                self.db_manager.save_download(
+                    title=title,
+                    url=self.download_thread.url,
+                    uploader=video_info.get('uploader', 'Unknown Uploader'),
+                    duration=video_info.get('duration', '0:00'),
+                    view_count=video_info.get('view_count', '0'),
+                    quality=quality,
+                    output_path="",
+                    status="failed"
+                )
             
             # Show error message
             if "Download cancelled" not in message:
