@@ -28,4 +28,5 @@ Screenshot:
 
 
 **# If some error occurs while downloading YouTube videos, just quit the program and try it once more.**
+
 **# VPN is necessary in some restricted areas.**
