@@ -27,4 +27,5 @@ Screenshot:
 ![screenshot](/assets/history.png)
 
 
-**If some error occurs while downloading youtube videos, just close the program and try it once more.**
+**# If some error occurs while downloading YouTube videos, just quit the program and try it once more.**
+**# VPN is necessary in some restricted areas.**
