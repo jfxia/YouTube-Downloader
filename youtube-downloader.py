@@ -12,6 +12,7 @@ from PyQt5.QtGui import QFont, QPalette, QColor, QIcon, QPixmap, QImage, QPainte
 import requests
 from io import BytesIO
 import platform
+import re
 
 
 class DatabaseManager:
@@ -779,10 +780,35 @@ class YouTubeDownloader(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Select Save Directory", self.path_display.text())
         if path:
             self.path_display.setText(path)
+
+    def clean_youtube_url(self,url):
+        """
+        清理YouTube视频URL，只保留核心的视频标识符部分
+        
+        参数:
+        url (str): 原始的YouTube视频URL
+        
+        返回:
+        str: 清理后的基本URL，只包含视频ID部分
+        """
+        # 处理标准的watch?v=格式
+        watch_pattern = r'(https?://(www\.)?youtube\.com/watch\?v=[a-zA-Z0-9_-]+)'
+        match = re.match(watch_pattern, url)
+        if match:
+            return match.group(1)
+        
+        # 处理youtu.be短链接格式
+        short_pattern = r'(https?://youtu\.be/[a-zA-Z0-9_-]+)'
+        match = re.match(short_pattern, url)
+        if match:
+            return match.group(1)
     
+        return url
+	
     def start_download(self):
         print('[DEBUG] Start download clicked')
         url = self.url_input.text().strip()
+        url = self.clean_youtube_url( url )
         output_dir = self.path_display.text()
         
         if not url:
