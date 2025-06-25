@@ -791,8 +791,8 @@ class YouTubeDownloader(QMainWindow):
         返回:
         str: 清理后的基本URL，只包含视频ID部分
         """
-        # 处理标准的watch?v=格式
-        watch_pattern = r'(https?://(www\.)?youtube\.com/watch\?v=[a-zA-Z0-9_-]+)'
+        # 处理标准的watch?v=格式，及各个子域名
+        watch_pattern = r'(https?://(www|m|music)\.youtube\.com/watch\?v=[a-zA-Z0-9_-]+)'
         match = re.match(watch_pattern, url)
         if match:
             return match.group(1)
@@ -802,18 +802,19 @@ class YouTubeDownloader(QMainWindow):
         match = re.match(short_pattern, url)
         if match:
             return match.group(1)
-    
+		
         return url
 	
     def start_download(self):
         print('[DEBUG] Start download clicked')
         url = self.url_input.text().strip()
-        url = self.clean_youtube_url( url )
         output_dir = self.path_display.text()
         
         if not url:
-            QMessageBox.warning(self, "Input Error", "Please enter a YouTube video URL")
+            QMessageBox.warning(self, "Input Error", "Please enter a valid YouTube video URL")
             return
+
+        url = self.clean_youtube_url( url )
             
         if not os.path.isdir(output_dir):
             QMessageBox.warning(self, "Path Error", "The specified save path is invalid")
