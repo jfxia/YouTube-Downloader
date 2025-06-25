@@ -40,6 +40,9 @@ class DatabaseManager:
                 ''')
                 conn.commit()
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f'[DEBUG] Exception in thread: {str(e)}')
             print(f"Database initialization error: {e}")
     
     def save_download(self, title, url, uploader, duration, view_count, quality, output_path, status="completed"):
@@ -55,6 +58,9 @@ class DatabaseManager:
                 conn.commit()
                 return cursor.lastrowid
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f'[DEBUG] Exception in thread: {str(e)}')
             print(f"Error saving download: {e}")
             return None
     
@@ -72,6 +78,9 @@ class DatabaseManager:
                 ''', (limit,))
                 return cursor.fetchall()
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f'[DEBUG] Exception in thread: {str(e)}')
             print(f"Error getting download history: {e}")
             return []
     
@@ -84,6 +93,9 @@ class DatabaseManager:
                 conn.commit()
                 return True
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f'[DEBUG] Exception in thread: {str(e)}')
             print(f"Error clearing history: {e}")
             return False
     
@@ -96,6 +108,9 @@ class DatabaseManager:
                 conn.commit()
                 return True
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f'[DEBUG] Exception in thread: {str(e)}')
             print(f"Error deleting download: {e}")
             return False
 
@@ -115,6 +130,7 @@ class DownloadThread(QThread):
         self.output_path = ""  # Add this to track the actual output file path
         
     def run(self):
+        print('[DEBUG] DownloadThread started')
         try:
             # 获取视频信息（添加extractor_args）
             ydl_info = yt_dlp.YoutubeDL({
@@ -123,7 +139,9 @@ class DownloadThread(QThread):
                 'no_warnings': True,
                 'extractor_args': {'youtube': {'skip': ['dash', 'hls']}}
             })
+            print(f'[DEBUG] Extracting info for: {self.url}')
             info_dict = ydl_info.extract_info(self.url, download=False)
+            print('[DEBUG] Video info extracted')
             
             if not info_dict:
                 raise Exception("Failed to get video information. Please check if the URL is valid.")
@@ -191,6 +209,9 @@ class DownloadThread(QThread):
                 self.finished_signal.emit(True, "Download completed!", self.video_info['title'], self.video_info)
                 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f'[DEBUG] Exception in thread: {str(e)}')
             self.finished_signal.emit(False, f"Error: {str(e)}", self.video_info.get('title', 'Unknown Video'), {})
     
     def progress_hook(self, d):
@@ -760,6 +781,7 @@ class YouTubeDownloader(QMainWindow):
             self.path_display.setText(path)
     
     def start_download(self):
+        print('[DEBUG] Start download clicked')
         url = self.url_input.text().strip()
         output_dir = self.path_display.text()
         
@@ -804,7 +826,6 @@ class YouTubeDownloader(QMainWindow):
         self.download_thread = DownloadThread(url, output_dir, quality)
         self.download_thread.progress_signal.connect(self.update_progress)
         self.download_thread.finished_signal.connect(self.download_finished)
-        print("===========load_thumbnail=============")
         self.download_thread.thumbnail_signal.connect(self.load_thumbnail)
         self.download_thread.start()
         
@@ -849,6 +870,9 @@ class YouTubeDownloader(QMainWindow):
             else:
                 self.thumbnail_label.setText(f"HTTP error: {response.status_code}")
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f'[DEBUG] Exception in thread: {str(e)}')
             self.thumbnail_label.setText(f"Error: {str(e)}")
             print(f"Error loading thumbnail: {e}")
     
