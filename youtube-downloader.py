@@ -178,7 +178,7 @@ class DownloadThread(QThread):
                     'retries': 15,
                     'fragment_retries': 15,
                     'socket_timeout': 30,
-					'noplaylist': True,
+                    'noplaylist': True,
                     'postprocessors': [
                         {
                             'key': 'FFmpegExtractAudio',       
@@ -201,7 +201,7 @@ class DownloadThread(QThread):
                     'retries': 15,
                     'fragment_retries': 15,
                     'socket_timeout': 30,
-					'noplaylist': True,
+                    'noplaylist': True,
                     'writethumbnail': True,
                     'postprocessors': [{
                         'key': 'EmbedThumbnail',
