@@ -174,7 +174,11 @@ class DownloadThread(QThread):
                     'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
                     'progress_hooks': [self.progress_hook],
                     'format': format_mapping[self.quality],
-                    'noplaylist': True,
+                    'no_check_certificate': True,
+                    'retries': 15,
+                    'fragment_retries': 15,
+                    'socket_timeout': 30,
+					'noplaylist': True,
                     'postprocessors': [
                         {
                             'key': 'FFmpegExtractAudio',       
@@ -193,7 +197,11 @@ class DownloadThread(QThread):
                     'progress_hooks': [self.progress_hook],
                     'format': format_mapping.get(self.quality, 'bestvideo+bestaudio/best'),
                     'merge_output_format': 'mp4',  
-                    'noplaylist': True,
+                    'no_check_certificate': True,
+                    'retries': 15,
+                    'fragment_retries': 15,
+                    'socket_timeout': 30,
+					'noplaylist': True,
                     'writethumbnail': True,
                     'postprocessors': [{
                         'key': 'EmbedThumbnail',
@@ -709,7 +717,7 @@ class YouTubeDownloader(QMainWindow):
         status_layout.addStretch()
         
         # Add version information
-        version_label = QLabel("Version: 1.2.0")
+        version_label = QLabel("Version: 2.0")
         version_label.setFont(QFont("Segoe UI", 8))  
         version_label.setStyleSheet("color: #6c757d;")
         status_layout.addWidget(version_label)
