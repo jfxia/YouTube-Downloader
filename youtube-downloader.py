@@ -133,12 +133,21 @@ class DownloadThread(QThread):
     def run(self):
         print('[DEBUG] DownloadThread started')
         try:
-            # 获取视频信息（添加extractor_args）
+            # get video info（add extractor_args）
             ydl_info = yt_dlp.YoutubeDL({
-                'format': 'bestaudio/best',
+                'format': 'bestvideo*+bestaudio/best',          
                 'quiet': True,
                 'no_warnings': True,
-                'extractor_args': {'youtube': {'skip': ['dash', 'hls']}}
+                #  Chrome + enable all clients
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) '
+                              'Chrome/129.0.0.0 Safari/537.36',
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['web', 'web_safari', 'web_embedded', 'android', 'ios'],
+                        'player_skip': ['webpage']              
+                    }
+                }
             })
             print(f'[DEBUG] Extracting info for: {self.url}')
             info_dict = ydl_info.extract_info(self.url, download=False)
@@ -156,10 +165,9 @@ class DownloadThread(QThread):
                 'view_count': self.format_count(info_dict.get('view_count', 0))
             }
             if self.video_info['thumbnail']:
-                # 确保在主线程更新UI
+                # ensure the main thread to update UI
                 self.thumbnail_signal.emit(self.video_info['thumbnail'])
             
-            # 更新格式映射
             format_mapping = {
                 'best': 'bv*+ba/b',
                 '1080p': 'bv[height<=1080]+ba/b[height<=1080]',
@@ -169,46 +177,51 @@ class DownloadThread(QThread):
                 'audio_only': 'ba/b'
             }
 
+            common_extra = {
+                'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
+                'progress_hooks': [self.progress_hook],
+                'no_check_certificate': True,
+                'retries': 15,
+                'fragment_retries': 15,
+                'socket_timeout': 30,
+                'noplaylist': True,
+                #  UA & clients
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                              'AppleWebKit/537.36 (KHTML, like Gecko) '
+                              'Chrome/129.0.0.0 Safari/537.36',
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['web', 'web_safari', 'web_embedded', 'android', 'ios'],
+                        'player_skip': ['webpage']
+                    }
+                }
+            }
+            
             if self.quality == "audio_only":
                 ydl_opts = {
-                    'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
-                    'progress_hooks': [self.progress_hook],
-                    'format': format_mapping[self.quality],
-                    'no_check_certificate': True,
-                    'retries': 15,
-                    'fragment_retries': 15,
-                    'socket_timeout': 30,
-                    'noplaylist': True,
-                    'postprocessors': [
-                        {
-                            'key': 'FFmpegExtractAudio',       
-                            'preferredcodec': 'mp3',           
-                            'preferredquality': '192',         
-                        },
-                        {
-                            'key': 'EmbedThumbnail',           
-                            'already_have_thumbnail': True
-                        }
-                    ]
+                    **common_extra,
+                    'format': 'ba/b',                         # audio only
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192'
+                    }, {
+                        'key': 'EmbedThumbnail',
+                        'already_have_thumbnail': True
+                    }]
                 }
             else:
                 ydl_opts = {
-                    'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
-                    'progress_hooks': [self.progress_hook],
-                    'format': format_mapping.get(self.quality, 'bestvideo+bestaudio/best'),
-                    'merge_output_format': 'mp4',  
-                    'no_check_certificate': True,
-                    'retries': 15,
-                    'fragment_retries': 15,
-                    'socket_timeout': 30,
-                    'noplaylist': True,
+                    **common_extra,
+                    'format': format_mapping.get(self.quality, 'bestvideo*+bestaudio/best'),
+                    'merge_output_format': 'mp4',
                     'writethumbnail': True,
                     'postprocessors': [{
                         'key': 'EmbedThumbnail',
                         'already_have_thumbnail': True
                     }]
                 }
-            
+                        
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([self.url])
                 
