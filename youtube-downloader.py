@@ -15,6 +15,33 @@ import platform
 import re
 
 
+# Monkey-patch: fix yt-dlp DPAPI crash on Chrome v127+ App-Bound Encryption
+# Chrome v127+ uses App-Bound Encryption (v20 prefix) which yt-dlp can't decrypt.
+# The non-v10 path calls _decrypt_windows_dpapi() which raises DownloadError (fatal).
+# We patch WindowsChromeCookieDecryptor.decrypt to handle failures gracefully.
+def _apply_ytdlp_dpapi_patch():
+    try:
+        from yt_dlp import cookies as _cookies
+        
+        _orig_decrypt = _cookies.WindowsChromeCookieDecryptor.decrypt
+        def _patched_decrypt(self, encrypted_value):
+            try:
+                return _orig_decrypt(self, encrypted_value)
+            except Exception as e:
+                version = encrypted_value[:3]
+                self._logger.warning(
+                    f'Skipping cookie (v{version.decode("latin1")} decrypt failed, '
+                    f'may be App-Bound encrypted): {e}'
+                )
+                self._cookie_counts['other'] = self._cookie_counts.get('other', 0) + 1
+                return None
+        _cookies.WindowsChromeCookieDecryptor.decrypt = _patched_decrypt
+    except Exception:
+        pass  # best-effort, don't crash on import
+
+_apply_ytdlp_dpapi_patch()
+
+
 class DatabaseManager:
     def __init__(self, db_path="download_history.db"):
         self.db_path = db_path
@@ -121,23 +148,36 @@ class DownloadThread(QThread):
     finished_signal = pyqtSignal(bool, str, str, dict)
     thumbnail_signal = pyqtSignal(str)
     
-    def __init__(self, url, output_dir, quality="best"):
+    def __init__(self, url, output_dir, quality="best", cookies_browser=None, cookies_file=None):
         super().__init__()
         self.url = url
         self.output_dir = output_dir
         self.quality = quality
+        self.cookies_browser = cookies_browser
+        self.cookies_file = cookies_file
         self.cancelled = False
         self.video_info = {}
         self.output_path = ""  # Add this to track the actual output file path
-        
+         
     def run(self):
         print('[DEBUG] DownloadThread started')
         try:
+            # Build common cookies/auth options
+            extra_opts = {}
+            if self.cookies_file:
+                extra_opts['cookiefile'] = self.cookies_file
+                print(f'[DEBUG] Using cookies file: {self.cookies_file}')
+            elif self.cookies_browser:
+                extra_opts['cookiesfrombrowser'] = (self.cookies_browser,)
+                print(f'[DEBUG] Using cookies from browser: {self.cookies_browser}')
+            
             # get video info（add extractor_args）
-            ydl_info = yt_dlp.YoutubeDL({
-                'format': 'bestvideo*+bestaudio/best',          
+            ydl_info_opts = {
+                'format': 'best',          
                 'quiet': True,
                 'no_warnings': True,
+                'js_runtimes': {'node': {}},
+                **extra_opts,
                 #  Chrome + enable all clients
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                               'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -148,8 +188,9 @@ class DownloadThread(QThread):
                         'player_skip': ['webpage']              
                     }
                 }
-            })
+            }
             print(f'[DEBUG] Extracting info for: {self.url}')
+            ydl_info = yt_dlp.YoutubeDL(ydl_info_opts)
             info_dict = ydl_info.extract_info(self.url, download=False)
             print('[DEBUG] Video info extracted')
             
@@ -185,6 +226,8 @@ class DownloadThread(QThread):
                 'fragment_retries': 15,
                 'socket_timeout': 30,
                 'noplaylist': True,
+                'js_runtimes': {'node': {}},
+                **extra_opts,
                 #  UA & clients
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                               'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -522,6 +565,49 @@ class YouTubeDownloader(QMainWindow):
         path_layout.addLayout(path_hbox)
         options_layout.addLayout(path_layout)
         
+        # Browser cookies selection
+        cookies_layout = QVBoxLayout()
+        cookies_layout.addWidget(QLabel("Cookies Source:"))
+        
+        cookies_hbox = QHBoxLayout()
+        
+        self.cookies_combo = QComboBox()
+        self.cookies_combo.addItems(["None", "Chrome", "Firefox", "Edge", "Brave", "Opera", "Cookies File..."])
+        self.cookies_combo.setCurrentIndex(2)  # Default to Firefox
+        self.cookies_combo.setMinimumHeight(32)
+        self.cookies_combo.setFont(QFont("Segoe UI", 9))
+        self.cookies_combo.currentTextChanged.connect(self.on_cookies_source_changed)
+        cookies_hbox.addWidget(self.cookies_combo)
+        
+        self.cookies_file_input = QLineEdit()
+        self.cookies_file_input.setPlaceholderText("Select cookies.txt file...")
+        self.cookies_file_input.setMinimumHeight(32)
+        self.cookies_file_input.setFont(QFont("Segoe UI", 9))
+        self.cookies_file_input.setVisible(False)
+        cookies_hbox.addWidget(self.cookies_file_input, 1)
+        
+        self.cookies_file_btn = QPushButton("Browse...")
+        self.cookies_file_btn.setMinimumHeight(32)
+        self.cookies_file_btn.setFont(QFont("Segoe UI", 9))
+        self.cookies_file_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+        """)
+        self.cookies_file_btn.clicked.connect(self.select_cookies_file)
+        self.cookies_file_btn.setVisible(False)
+        cookies_hbox.addWidget(self.cookies_file_btn)
+        
+        cookies_layout.addLayout(cookies_hbox)
+        options_layout.addLayout(cookies_layout)
+        
         options_group.setLayout(options_layout)
         main_tab_layout.addWidget(options_group)
         
@@ -802,6 +888,19 @@ class YouTubeDownloader(QMainWindow):
         if path:
             self.path_display.setText(path)
 
+    def on_cookies_source_changed(self, text):
+        is_file = text == "Cookies File..."
+        self.cookies_file_input.setVisible(is_file)
+        self.cookies_file_btn.setVisible(is_file)
+    
+    def select_cookies_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Cookies File", "",
+            "Text Files (*.txt);;All Files (*)"
+        )
+        if path:
+            self.cookies_file_input.setText(path)
+
     def clean_youtube_url(self,url):
         """
         清理YouTube视频URL，只保留核心的视频标识符部分
@@ -870,8 +969,17 @@ class YouTubeDownloader(QMainWindow):
         }
         quality = quality_mapping[self.quality_combo.currentText()]
         
+        # Determine cookies source
+        cookies_browser = None
+        cookies_file = None
+        cookies_source = self.cookies_combo.currentText()
+        if cookies_source == "Cookies File...":
+            cookies_file = self.cookies_file_input.text().strip()
+        elif cookies_source != "None":
+            cookies_browser = cookies_source.lower()
+        
         # Create and start download thread
-        self.download_thread = DownloadThread(url, output_dir, quality)
+        self.download_thread = DownloadThread(url, output_dir, quality, cookies_browser, cookies_file)
         self.download_thread.progress_signal.connect(self.update_progress)
         self.download_thread.finished_signal.connect(self.download_finished)
         self.download_thread.thumbnail_signal.connect(self.load_thumbnail)
