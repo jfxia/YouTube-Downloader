@@ -18,14 +18,12 @@ python youtube-downloader.py
 
 Screenshot:
 
-![screenshot](/assets/screenshot1.png)
-
-![screenshot](/assets/screenshot2.png)
-
-![screenshot](/assets/screenshot3.png)
+![screenshot](/assets/screenshot4.png)
 
 ![screenshot](/assets/history.png)
 
+
+**# Login YouTube in Firefox browser first.**
 
 **# If some error occurs while downloading YouTube videos, just quit the program and try it once more.**
 
